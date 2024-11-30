@@ -2252,7 +2252,70 @@ void Graph::extend_cut_index(vector<CutIndex> &ci, double balance, uint8_t cut_l
 }
 
 
+#ifdef DECOMP_ADD
+void Graph:: c_spc_traverse_another_p(NodeID v, distance_t max_dist) {
+    for (NodeID node: nodes) {
+        node_data[node].distance = infinity;
+        node_data[node].spc = 0;
+    }
+    node_data[v].distance = 0;
+    node_data[v].spc = 1;
 
+     priority_queue<SearchNode> q;
+    for (Neighbor n : node_data[v].neighbors) {
+        // skip if in same partition
+        if (!contains(n.node)) continue;
+        // skip explore from cut 
+        if (node_data[n.node].is_cut_vertex) continue;
+        // skip not in another partition 
+        if (!node_data[n.node].in_another_p) continue;
+
+        Node &n_data = node_data[n.node];
+        n_data.distance = n.distance;
+        n_data.spc =  n.edge_spc;
+        q.push(SearchNode(n.distance, n.node));
+    }
+
+    while (!q.empty())
+    {
+        SearchNode next = q.top();
+        q.pop();
+        if (node_data[next.node].is_cut_vertex) continue;
+
+        for (Neighbor n : node_data[next.node].neighbors)
+        {
+            Node &n_data = node_data[n.node];
+            if (!contains(n.node) ) continue;
+                // skip when: 1. not in this subgraph
+                //            2. and not a cut node 
+                //            3. not in another partition 
+
+
+            // if (n.shortcut_spc) continue;
+
+            if (n_data.is_cut_vertex || n_data.in_another_p) {
+                // update distance and enque
+                distance_t new_dist = next.distance + n.distance;
+
+                if (new_dist > max_dist) continue;
+                if (new_dist < n_data.distance)
+                {
+                    // if (tmp_flag) printf("cut validate : find new dist for %d from prev  %d: dist = %d old=%d\n", n.node, next.node,new_dist,n_data.distance);     
+                    n_data.distance = new_dist;
+                    n_data.spc = node_data[next.node].spc * n.edge_spc;
+                    q.push(SearchNode(new_dist, n.node));
+                } else if (new_dist == n_data.distance) {
+                    n_data.spc += node_data[next.node].spc * n.edge_spc;
+                }    
+            }
+        }
+
+    }
+
+
+
+}
+#else
 void Graph:: c_spc_traverse_another_p(NodeID v, distance_t max_dist) {
     for (NodeID node: nodes) {
         node_data[node].distance = infinity;
@@ -2324,7 +2387,190 @@ void Graph:: c_spc_traverse_another_p(NodeID v, distance_t max_dist) {
 
 
 }
+#endif
 
+
+
+#ifdef DECOMP_ADD
+
+void Graph::c_compute_shortcuts(const vector<CutIndex> &ci, const vector<NodeID> &cut,
+                        map<pair<NodeID, NodeID>, spc_distance_t> &shortcuts_recorder) {
+    if (cut.size() <  1) return;
+
+    vector<NodeID> border;
+    for (NodeID c: cut) {
+        for (Neighbor n : node_data[c].neighbors) {
+            if (contains(n.node) && !node_data[n.node].in_another_p) {
+                if (node_data[n.node].is_cut_vertex) continue;
+                border.push_back(n.node);
+                node_data[n.node].is_border = true;
+            } 
+        }
+    }
+
+    util::make_set(border);
+    if (border.size() < 1) return;
+    std::sort(border.begin(), border.end());
+    size_t cut_level = ci[cut[0]].cut_level;
+
+    map<pair<NodeID, NodeID>, distance_t> dist_via_cut; 
+
+    map<pair<NodeID, NodeID>, spc_distance_t> tmp_edges;
+    vector<distance_t> cut_max_dist(cut.size(),0);
+
+    // compute distance between cut vertices
+    for (size_t i = 0; i < cut.size(); ++i) {
+        NodeID c_i = cut[i];
+        for (size_t j = i+1; j < cut.size(); ++j) {
+            NodeID c_j = cut[j];
+            spc_distance_t cut_distance_spc = get_cut_level_distance(ci[c_i], ci[c_j], cut_level);
+            distance_t d_cut = static_cast<distance_t>(cut_distance_spc);
+            dist_via_cut[{c_i,c_j}] = d_cut;
+#ifdef DIJK_MAX_DIST
+            if (d_cut > cut_max_dist[i]) cut_max_dist[i]= d_cut;
+#endif
+        }
+    }
+
+    // step: from cut vertices, find paths that are passing through another parititon, 
+    // and store it in shortcuts_recorder
+
+    for (size_t i = 0; i < cut.size(); ++i) {
+        NodeID c_i = cut[i];
+#ifdef DIJK_MAX_DIST
+        c_spc_traverse_another_p(c_i, cut_max_dist[i]);
+#else 
+        c_spc_traverse_another_p(c_i, infinity);
+
+#endif
+        for (size_t j = i+1; j < cut.size(); ++j) {
+            NodeID c_j = cut[j];
+            distance_t d_partition = node_data[c_j].distance;
+            spc_t spc_partition = node_data[c_j].spc;
+            distance_t d_cut = dist_via_cut[{c_i,c_j}];
+            if (d_cut == d_partition) {
+                spc_add_edge(c_i, c_j, d_partition, spc_partition, true,true);
+                tmp_edges[{c_i,c_j}] = static_cast<spc_distance_t> (spc_partition) << DIST_SHIFT | d_partition;
+            }
+
+
+        }
+    }
+
+
+
+    // step: compute sd between border-border pair, cut-cut pair and border-cut pair
+
+    for (size_t i = 0; i < border.size(); ++i) {
+        NodeID n_i = border[i]; 
+        // sd for border-border pair
+        for (size_t j = i+1; j < border.size(); ++j) {
+            NodeID n_j = border[j];
+            distance_t d_cut = static_cast<distance_t> (get_cut_level_distance(ci[n_i], ci[n_j], cut_level));
+            dist_via_cut[{n_i,n_j}] = d_cut; // cut level distance 
+        }
+
+        // sd for border-cut pair
+        for(size_t k = 0; k < cut.size(); ++k) {
+            NodeID n_j = cut[k];
+            NodeID b1 = min(n_i, n_j);
+            NodeID b2 = max(n_i, n_j);
+            
+            distance_t d_cut = static_cast<distance_t> (get_cut_level_distance(ci[b1], ci[b2], cut_level));
+            dist_via_cut[{b1,b2}] = d_cut;
+        }
+    }
+
+    // step: decompose cut vertices, and record shortcuts for border pairs
+    set<NodeID> processed_cut;
+    for (size_t c_counter = 0; c_counter < cut.size(); ++c_counter) {
+        NodeID rm_node = cut[c_counter];
+        Node rm_node_data = node_data[rm_node];
+        // get valid neighbor -- should be in this subgraph
+        vector<Neighbor> rm_node_nbrs = vector<Neighbor>();
+        for (auto &it : rm_node_data.neighbors) {
+            NodeID n = it.node;
+            if (!contains(n)) continue;
+            if (node_data[n].in_another_p) continue;
+            if (processed_cut.find(n) != processed_cut.end()) continue;
+            rm_node_nbrs.push_back(it);
+        
+        }
+        if (rm_node_nbrs.size() <= 0) continue;
+
+        // start to decomposite 
+        for (size_t i = 0; i < rm_node_nbrs.size(); ++i) {
+            NodeID n_i = rm_node_nbrs[i].node;
+            for (size_t j=i+1; j < rm_node_nbrs.size(); ++j) {
+                NodeID n_j = rm_node_nbrs[j].node;
+                NodeID b1 = std::min(n_i, n_j);
+                NodeID b2 = std::max(n_i, n_j);
+                distance_t dist_direct = rm_node_nbrs[i].distance + rm_node_nbrs[j].distance;
+                spc_t spc_direct = rm_node_nbrs[i].edge_spc * rm_node_nbrs[j].edge_spc;
+                //sd is achieved by cut node but not this cut node
+                if (dist_direct != dist_via_cut[{b1,b2}]) continue;
+
+                // if both are border, then reocrd it into border 
+                // no add this one yet
+                if (node_data[b1].is_border && node_data[b2].is_border) {
+                    const auto &it = shortcuts_recorder.find({b1,b2});
+                    if (it != shortcuts_recorder.end()) {
+                        distance_t dist =  static_cast<distance_t> (shortcuts_recorder[{b1,b2}]);
+                        spc_t spc = static_cast<spc_t>(shortcuts_recorder[{b1,b2}]  >> DIST_SHIFT);
+                        if (dist == dist_direct) {
+                            shortcuts_recorder[{b1,b2}] = static_cast<spc_distance_t>(spc_direct+spc) << DIST_SHIFT | dist_direct;
+                        } else if (dist_direct < dist) {
+                            shortcuts_recorder[{b1,b2}] = static_cast<spc_distance_t>(spc_direct) << DIST_SHIFT | dist_direct;
+                        }
+                    } else {
+                        shortcuts_recorder[{b1,b2}] = static_cast<spc_distance_t>(spc_direct) << DIST_SHIFT | dist_direct;
+                    }
+                } else {
+                    spc_add_edge(b1,b2,dist_direct,spc_direct,true, true);
+                    const auto &it = tmp_edges.find({b1,b2});
+                    if (it != tmp_edges.end()) {
+                        distance_t dist =  static_cast<distance_t> (tmp_edges[{b1,b2}]);
+                        spc_t spc = static_cast<spc_t>(tmp_edges[{b1,b2}]  >> DIST_SHIFT);
+                        if (dist == dist_direct) {
+                            tmp_edges[{b1,b2}] = static_cast<spc_distance_t>(spc_direct+spc) << DIST_SHIFT | dist_direct;
+                        } else if (dist_direct < dist) {
+                            tmp_edges[{b1,b2}] = static_cast<spc_distance_t>(spc_direct) << DIST_SHIFT | dist_direct;
+                        }
+                    } else {
+                        tmp_edges[{b1,b2}] = static_cast<spc_distance_t>(spc_direct) << DIST_SHIFT | dist_direct;
+                    }
+
+                }
+
+
+
+            }
+
+        }
+
+
+
+
+        processed_cut.insert(rm_node);
+    }
+
+    // remove tmp edges added to cut vertices
+    for (const auto &it : tmp_edges) {
+        n_remove_edge(it.first.first, it.first.second,static_cast<distance_t> (it.second), static_cast<spc_t> (it.second>> DIST_SHIFT));
+    }
+
+
+    
+    for (NodeID n : border) {
+        node_data[n].is_border = false;
+    }
+
+    
+
+
+}
+
+#else
 /*
     compute shortcuts via explore from border directly
 */
@@ -2401,7 +2647,7 @@ void Graph::c_compute_shortcuts(const vector<CutIndex> &ci, const vector<NodeID>
 
 
 }
-
+#endif
 
 
 size_t Graph::create_cut_index(std::vector<CutIndex> &ci, double balance)

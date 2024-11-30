@@ -33,9 +33,6 @@ int main(int argc, char** argv)
     util::start_timer();
     g.create_cut_index(ci, 0.2);
 
-    for (auto it : external_test_set) {
-        printf("ci[%d] level %u\n", it, ci[it].cut_level);
-    }
     
     ContractionIndex con_index(ci, closest);
     double indexing_time = util::stop_timer();

@@ -10,8 +10,6 @@
 using namespace std;
 using namespace road_network;
 
-const size_t sleep_sec = 0;
-const size_t attempts = 0;
 const size_t nr_buckets = 10;
 const size_t bucket_size = 100000;
 const size_t MB = 1024 * 1024;
@@ -60,38 +58,6 @@ int main(int argc, char* argv[])
 
 
 
-    std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
-
-    // skip first 5 attempts  
-    for (size_t count = 0; count < attempts; ++ count) {
-        for (size_t i = 0; i < num_of_files; ++i) {
-            std::string queryFilePath =  queryFileFormat + std::to_string(i);
-            std::ifstream queryFile(queryFilePath);
-            if (!queryFile.is_open()) {
-                std::cerr << "Error opening queries file: " << queryFilePath << std::endl;
-                return 1; // Return an error code
-            }
-        
-            std::string resultFilePath = resultFileFormat + std::to_string(i);
-            std::ofstream resultFile(resultFilePath);
-            if (!resultFile.is_open()) {
-                std::cerr << "Error opening result file: " << resultFilePath << std::endl;
-                return 1; // Return an error code
-            }
-
-            vector<pair<NodeID,NodeID>> queries;
-            load_query(queries,queryFile);
-            queryFile.close();
-            std::vector<spc_distance_t> spc_distances(queries.size()); 
-            int count = 0;
-
-            util::start_timer();
-            for (pair<NodeID,NodeID> q : queries){
-                spc_distances[count] = con_index.get_distance(q.first, q.second);
-                count++;
-            }
-        }
-    }
 
     for (size_t i = 0; i < num_of_files; ++i) {
         std::string queryFilePath =  queryFileFormat + std::to_string(i);
@@ -132,7 +98,6 @@ int main(int argc, char* argv[])
 
         cout<< "run time for each bucket (in sec). Bucket size: " << bucket_size << endl;
         for (size_t bucket_c = 0; bucket_c < nr_buckets; ++bucket_c) {
-            std::vector<std::pair<NodeID, NodeID>> subset(queries.begin() + bucket_c*bucket_size, queries.begin() + (bucket_c+1)*bucket_size);
             cout << bucket_time_recorder[bucket_c] << " ";
         }
         cout << endl;
@@ -151,8 +116,8 @@ int main(int argc, char* argv[])
         cout << "Ave hoplinks: " << total_hoplinks/nr_buckets << "\n\n";
         
 
-        for (int j = 0; j < nr_buckets*bucket_size; ++j) {
-            resultFile << queries[j].first << " "<< queries[j].second << " " << static_cast<distance_t> (spc_distances[j]) << " " <<static_cast<spc_t>(spc_distances[j]>>32)<< "\n";
+        for (size_t j = 0; j < nr_buckets*bucket_size; ++j) {
+            resultFile << queries[j].first << " " << queries[j].second << " " << static_cast<distance_t> (spc_distances[j]) << " " <<static_cast<spc_t>(spc_distances[j]>>32)<< "\n";
         }    
     }
     

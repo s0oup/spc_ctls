@@ -8,6 +8,8 @@
 // algorithm config
 // #define NO_SHORTCUTS // turns off shortcut computation, resulting in smaller indexes but slower local queries
 
+// #define DECOMP_ADD // add back shortcuts from CUTS 
+
 
 // #define PRESERVE_SD
 #if defined(NO_SHORTCUTS) && defined(PRESERVE_SD)
@@ -22,7 +24,7 @@
     #define MULTI_THREAD_DISTANCES 4 // number of parallel threads for label & shortcut computation
 #endif
 
-// #define DIJK_MAX_DIST
+#define DIJK_MAX_DIST
 
 
 #include <cstdint>
@@ -56,15 +58,7 @@ const distance_t infinity = UINT32_MAX >> 1;
 struct Neighbor;
 class Graph;
 
-const NodeID VT =-1; // check dijkstra behavior
 
-const std::set<NodeID> external_test_set = {}; 
-const std::set<NodeID> test_VC_set = {}; // check cu
-
-// const std::set<NodeID> external_test_set = {1,2,3,4,5,6,9}; 
-// const std::set<NodeID> test_VC_set = {1,2,3,4,5,6,9}; // check cut node boder behavior and add shortcut
-// const std::set<NodeID> external_test_set = {112508,112510,112509,112507}; 
-// const std::set<NodeID> test_VC_set = {112510}; // check cut node boder behavior and add shortcut
 //--------------------------- CutIndex ------------------------------
 
 struct CutIndex
@@ -370,15 +364,9 @@ class Graph
 // use external path to add back shortcuts 
 void n_remove_edge(NodeID v, NodeID w, distance_t dist, spc_t spc);
 static void n_extend_on_partition(std::vector<CutIndex> &ci, double balance, uint8_t cut_level, 
-                            const std::vector<NodeID> &p, const std::vector<NodeID> &cut, 
-                            const std::vector<NodeID> &other_p, map<pair<NodeID, NodeID>, spc_distance_t> &shortcuts_recorder);
-static void n_extend_on_partition(std::vector<CutIndex> &ci, double balance, uint8_t cut_level, 
                             const std::vector<NodeID> &p, const std::vector<NodeID> &cut);
 
 void add_shortcuts(const std::vector<NodeID> &cut, const std::vector<CutIndex> &ci);
-void n_spc_add_shortcuts(const std::vector<NodeID> &cut, const std::vector<CutIndex> &ci,
-                        const std::vector<NodeID> &other_p,map<pair<NodeID, NodeID>, spc_distance_t> &shortcuts_recorder);
-void n_spc_dijkstra_limit_dist_search_another_partition(NodeID v, distance_t max_dist, set<NodeID> &cut_nodes_set ,set<NodeID> &exc_node_set);
 ///////////////////////////////////////////////////////////////
 
 void c_flag_cut_vertices(vector<NodeID> cuts) {
@@ -397,10 +385,8 @@ void c_unflag_another_p(vector<NodeID> another_p) {
     for (NodeID node : another_p)
         node_data[node].in_another_p = false;
 }
-void c_compute_labels(vector<CutIndex> &ci, vector<NodeID> &cut);
 void c_compute_shortcuts( const vector<CutIndex> &ci,  const vector<NodeID> &cut,
                         map<pair<NodeID, NodeID>, spc_distance_t> &shortcuts_recorder);
-void c_spc_run_dijkstra_llsub(NodeID v);
 void c_spc_traverse_another_p(NodeID v, distance_t max_dist);
 
 
